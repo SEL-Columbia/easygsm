@@ -10,7 +10,7 @@ sys.path.append(os.path.abspath('.')) # really, nothing better?
 from easygsm.opt import sampleservice
 
 options = { "devmodem": "/dev/ttyUSB0", # modem port
-	    "modem_mode": 1, # 0 - PDU, 1 - TEXT
+	    "modem_mode": 0, # 0 - PDU, 1 - TEXT
             "baudrate": 9600, # modem baudrate
             "timeout": 1, # modem timeout, in seconds
             "eth_iface": "192.168.1.101", # ethernet interface

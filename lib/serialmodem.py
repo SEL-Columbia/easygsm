@@ -209,19 +209,6 @@ class SerialModemProtocol(LineReceiver):
                 self._received.append(line)
                 self._received_log.append(line)
 
-    def _write_next_old(self):
-        if not self._waiting and self._outgoing:
-            message = self._outgoing[0]
-            print message
-            self.sendLine(message)
-            self._waiting = True
-            self._sent.append(message)
-
-            if message.startswith("AT+CMGS"): # send sms
-                self.setRawMode()
-            elif message.startswith("AT+CMGL"):
-                self._reading = True
-
     def _write_next(self):
         if not self._waiting and self._outgoing:
             if type(self._outgoing[0]) == types.TupleType: # send sms
