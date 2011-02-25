@@ -248,7 +248,7 @@ class SerialModemProtocol(LineReceiver):
         """
         for message in messages:
             index = message.parts["INDEX"]
-            self._outgoing.append("AT+CMGD=%d,%d" % (index, 0))
+            self._pending.append("AT+CMGD=%d,%d" % (index, 0))
         return defer.succeed(messages)
 
     def list_sms(self, code):
