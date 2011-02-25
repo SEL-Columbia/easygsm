@@ -197,7 +197,7 @@ class SerialModemProtocol(LineReceiver):
             elif "ERROR" in line:
                 self._waiting = False
                 self._reading = False
-                self._outgoing.extendleft(reversed(self._init_sequence))
+                self._pending.extendleft(reversed(self._init_sequence))
                 self._write_next()
 
             elif "+CMTI" in line: # new sms indicator
