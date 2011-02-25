@@ -7,7 +7,7 @@ from twisted.web import resource, server
 import sys, os.path
 sys.path.append(os.path.abspath('.')) # really, nothing better?
 
-from serialmodem.lib.protocol import tmpSerialPort
+from easygsm.lib.serialmodem import tmpSerialPort
 import modems, webmin, irc
 
 class SampleService(service.Service):

@@ -11,6 +11,7 @@ from collections import deque
 import random, types
 
 def _sink(dummy):
+    """Dummy callback method."""
     return
 
 class tmpSerialPort(SerialPort):
@@ -68,22 +69,17 @@ class SerialModemProtocol(LineReceiver):
         self._reading = False # new messages being read
 
         # for tracking an unterminated message
-        self._outgoing_message_terminated = True
+        self._sms_terminated = True
 
     @property
-    def outgoing(self):
+    def pending(self):
         """Returns the queue of all lines to be sent to the modem."""
-        return self._outgoing
-
-    @property
-    def incoming(self):
-        """Returns the queue of all response lines from the modem."""
-        return self._incoming
+        return self._pending
 
     @property
     def received(self):
-        """Returns the queue of lines resulting from a AT+CMGL."""
-        return self._received_log
+        """Returns the queue of all response lines from the modem."""
+        return self._received
 
     @property
     def sent(self):
@@ -101,10 +97,10 @@ class SerialModemProtocol(LineReceiver):
         return self._reading
 
     @property
-    def outgoing_message_terminated(self):
+    def sms_terminated(self):
         """Returns the state of the outgoing messages, whether 
         it was terminated with a ctrl-z or not."""
-        return self._outgoing_message_terminated
+        return self._sms_terminated
 
     def _set_mode(self, mode):
         if mode and not mode in self.modes:
@@ -119,11 +115,10 @@ class SerialModemProtocol(LineReceiver):
         initialization actions here (for eg: delete messages stored on the
         SIM, process unread messages, etc.)
         """
-        self._outgoing = deque(self._init_sequence, maxlen=255)
-        self._incoming = deque(maxlen=255)
-        self._received = deque(maxlen=255)
-        self._sent = deque(maxlen=255)
-        self._received_log = deque(maxlen=255)
+        self._pending = deque(self._init_sequence, maxlen=255)
+        self._received = deque(maxlen=1024)
+        self._sent = deque(maxlen=1024)
+        self._response = []
 
         if self._process_unread_messages:
             self.list_sms(0) # process unread messages
@@ -148,21 +143,21 @@ class SerialModemProtocol(LineReceiver):
 
             if '>' in data: # send message with trailing ctrl-z
                 self.setLineMode()
-                sms_text = self.outgoing[0][1]
+                sms_text = self.pending[0][1]
                 print sms_text
-                self._sent.append(sms_text)
-                self._outgoing_message_terminated = False
+                self._sms_terminated = False
                 self.sendLine(sms_text + chr(26))
-                self._outgoing_message_terminated = True
+                self._sms_terminated = True
+                self._sent.append(sms_text)
 
     def lineReceived(self, line):
         if line:
             print line
-            self._incoming.append(line)
+            self._received.append(line)
 
             if "OK" in line:
                 self._waiting = False
-                _prev = self._outgoing[0]
+                _prev = self._pending[0]
 
                 if type(_prev) == types.TupleType:
                     threads.deferToThread(self._sent_sms_callback, _prev[2])
@@ -177,19 +172,22 @@ class SerialModemProtocol(LineReceiver):
                         the callback is most likely third-party and 
                         not guaranteed to return, so I do it last here.
                         """
-                        d = self._received_sms()
+                        lines = self._response[:]
+                        del self._response[:] # clear the response lines
+                        d = self._received_sms(lines)
                         d.addCallback(self._sim_delete)
                         d.addCallback(
                             lambda m: threads.deferToThread(
                                 self._got_sms_callback, m))
 
-                self._outgoing.popleft() # moving along now
+                self._pending.popleft() # moving along now
                 
-                if self._stagger_sends and self.outgoing:
-                    # If the following AT command is also a SMS send,
-                    # delay its sending.
-                    if _prev.startswith("AT+CMGS") and \
-                            _prev.startswith("AT+CMGS"):
+                if self._stagger_sends and len(self._pending) > 0:
+                    # If the adjacent AT commands are for sending sms messages,
+                    # stagger the interval between them.
+                    _next = self._pending[0]
+                    if type(_prev) == types.TupleType and \
+                            type(_next) == types.TupleType:
                         t = random.randint(self._send_interval[0],
                                            self._send_interval[1])
                         reactor.callLater(t, self._write_next)
@@ -206,17 +204,16 @@ class SerialModemProtocol(LineReceiver):
                 self.list_sms(0) # list unread sms messages
 
             elif self._reading:
-                self._received.append(line)
-                self._received_log.append(line)
+                self._response.append(line)
 
     def _write_next(self):
-        if not self._waiting and self._outgoing:
-            if type(self._outgoing[0]) == types.TupleType: # send sms
-                message = self._outgoing[0][0]
+        if not self._waiting and self._pending:
+            if type(self._pending[0]) == types.TupleType: # send sms
+                message = self._pending[0][0]
                 self.sendLine(message)
                 self.setRawMode()
             else:
-                message = self._outgoing[0]
+                message = self._pending[0]
                 self.sendLine(message)
                 if message.startswith("AT+CMGL"):
                     self._reading = True
@@ -225,20 +222,21 @@ class SerialModemProtocol(LineReceiver):
             self._waiting = True
             self._sent.append(message)
 
-    def _received_sms(self):
+    def _received_sms(self, lines):
         """Returns a deferred - list of message objects received."""
+        q = deque(lines)
         messages = deque(maxlen=255)
-        while self._received:
-            info = self._received.popleft()
+        while q:
+            info = q.popleft()
             if info.startswith("+CMGL"):
                 sms_body = []
-                while self._received:
-                    line = self._received[0]
+                while q:
+                    line = q[0]
                     if line.startswith("+CMGL"):
                         break
                     else:
                         sms_body.append(line)
-                        self._received.popleft()
+                        q.popleft()
                 messages.append(
                     message.Message(self.mode, info, '\n'.join(sms_body)))
         return defer.succeed(messages)
@@ -258,8 +256,8 @@ class SerialModemProtocol(LineReceiver):
         message = 'AT+CMGL="%s"' % (self.message_status[code][1],) if \
             self.mode == 1 else "AT+CMGL=%d" % (code,)
 
-        if not self._reading and message not in self._outgoing:
-            self._outgoing.append(message)
+        if not self._reading and message not in self._pending:
+            self._pending.append(message)
             self._write_next()
 
     def send_sms(self, number, text, callback_index=None):
@@ -274,7 +272,7 @@ class SerialModemProtocol(LineReceiver):
                              text,
                              callback_index)]
         
-        self._outgoing.extend(message_list)
+        self._pending.extend(message_list)
         self._write_next()
 
     def delete_sms(self, message_index, delete_type=0):
@@ -286,7 +284,7 @@ class SerialModemProtocol(LineReceiver):
             3 - Delete all messages except unread (including unsent messages)
             4 - Delete all messages
         """
-        self._outgoing.append("AT+CMGD=%d,%d" % (message_index, delete_type))
+        self._pending.append("AT+CMGD=%d,%d" % (message_index, delete_type))
         self._write_next()
 
     def switch_mode(self):
@@ -297,11 +295,11 @@ class SerialModemProtocol(LineReceiver):
 
     def soft_reset(self):
         """Clear the queues and re-initialize the modem."""
-        self._outgoing.clear()
-        self._incoming.clear()
+        self._pending.clear()
         self._received.clear()
         self._sent.clear()
+        del self._response[:]
         self._waiting = False
         self._reading = False
-        self._outgoing.extend(self._init_sequence)        
+        self._pending.extend(self._init_sequence)        
         self._write_next()
