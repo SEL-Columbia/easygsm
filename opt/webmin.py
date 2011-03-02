@@ -78,10 +78,11 @@ class Logs(resource.Resource):
         return "".join(response)
 
 class Webmin(resource.Resource):
-    
-    def __init__(self, modem):
+
+    modem = None
+
+    def __init__(self):
         resource.Resource.__init__(self)
-        self.modem = modem
 
     def getChild(self, link, request):
         if link == "logs":

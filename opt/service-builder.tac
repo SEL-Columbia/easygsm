@@ -17,12 +17,15 @@ options = { "devmodem": "/dev/ttyUSB0", # modem port
 	    "webmin_enabled": False,
             "webmin_port": 9191, # listener port for webmin access
 	    "ipfwd_enabled": False,
-	    "ipfwd_put_uri": "google.com",
-	    "ipfwd_get_uri" :"google.com",
+	    "ipfwd_get_frequency": 10,
+	    "ipfwd_server": "http://173.203.94.233",
+	    "ipfwd_send_uri": "/sms/send",
+	    "ipfwd_get_uri": "/sms/received",
+	    "ipfwd_got_uri": "/message/remove",
 	    "irc_enabled": True,
 	    "irc_server": "irc.freenode.net",
 	    "irc_channel": "sharedsolar",
-	    "irc_nick": "loweryourbills",
+	    "irc_nick": "easygsm",
 	    "irc_port": 6667 }
 
 logfile = logfile.LogFile("simpleservice.log", "/tmp", maxRotatedFiles=10)
